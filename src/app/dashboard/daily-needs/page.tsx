@@ -7,6 +7,7 @@ import { collection, onSnapshot, query, where } from "firebase/firestore";
 import toast from "react-hot-toast";
 import Link from "next/link";
 import { MenuItem } from "@/types";
+import type { Reservation, UserBehavior, RestrictionLevel } from "@/types/reservation";
 
 const ALL_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -17,6 +18,51 @@ interface DemandLocal {
     quantity: number;
     days: string[];
     isActive: boolean;
+}
+
+// ─── Status helpers ──────────────────────────────
+const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
+    reserved: { label: "Reserved", color: "text-yellow-400", bg: "bg-yellow-500/20" },
+    confirmed: { label: "Confirmed", color: "text-blue-400", bg: "bg-blue-500/20" },
+    collected: { label: "Collected", color: "text-emerald-400", bg: "bg-emerald-500/20" },
+    expired: { label: "Expired", color: "text-zinc-400", bg: "bg-zinc-500/20" },
+    no_show: { label: "No-Show", color: "text-red-400", bg: "bg-red-500/20" },
+};
+
+function PickupCountdown({ endTime }: { endTime: string }) {
+    const [timeLeft, setTimeLeft] = useState("");
+    const [isUrgent, setIsUrgent] = useState(false);
+
+    useEffect(() => {
+        const tick = () => {
+            const now = Date.now();
+            const end = new Date(endTime).getTime();
+            const diff = end - now;
+
+            if (diff <= 0) {
+                setTimeLeft("Expired");
+                setIsUrgent(true);
+                return;
+            }
+
+            const hrs = Math.floor(diff / 3600000);
+            const mins = Math.floor((diff % 3600000) / 60000);
+            const secs = Math.floor((diff % 60000) / 1000);
+
+            setTimeLeft(hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m ${secs}s`);
+            setIsUrgent(diff < 1800000); // < 30 min
+        };
+
+        tick();
+        const interval = setInterval(tick, 1000);
+        return () => clearInterval(interval);
+    }, [endTime]);
+
+    return (
+        <span className={`text-xs font-bold ${isUrgent ? "text-red-400 animate-pulse" : "text-blue-400"}`}>
+            ⏱ {timeLeft}
+        </span>
+    );
 }
 
 export default function DailyNeedsPage() {
@@ -39,6 +85,13 @@ export default function DailyNeedsPage() {
     const [editQty, setEditQty] = useState(1);
     const [editDays, setEditDays] = useState<string[]>([]);
     const [editSaving, setEditSaving] = useState(false);
+
+    // ─── Reservation State ────────────────────────
+    const [reservations, setReservations] = useState<Reservation[]>([]);
+    const [userBehavior, setUserBehavior] = useState<UserBehavior | null>(null);
+    const [reservingItem, setReservingItem] = useState<string | null>(null);
+    const [confirmingId, setConfirmingId] = useState<string | null>(null);
+    const [collectingId, setCollectingId] = useState<string | null>(null);
 
     useEffect(() => {
         if (!loading && !user) router.push("/auth");
@@ -67,9 +120,8 @@ export default function DailyNeedsPage() {
                 const items = snap.docs.map((d) => ({
                     id: d.id,
                     ...d.data(),
-                    isActive: d.data().isActive !== false, // default true for old docs
+                    isActive: d.data().isActive !== false,
                 })) as DemandLocal[];
-                // Sort by createdAt descending in JS (avoids composite index)
                 items.sort((a: any, b: any) => (b.createdAt || "").localeCompare(a.createdAt || ""));
                 setDemands(items);
                 setFetching(false);
@@ -81,6 +133,52 @@ export default function DailyNeedsPage() {
         );
         return () => unsub();
     }, [user]);
+
+    // Real-time reservations for today
+    useEffect(() => {
+        if (!user) return;
+        const today = new Date().toISOString().split("T")[0];
+        const q = query(
+            collection(db, "daily_needs_reservations"),
+            where("userId", "==", user.uid),
+            where("reservationDate", "==", today)
+        );
+        const unsub = onSnapshot(q, (snap) => {
+            const items = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Reservation[];
+            items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+            setReservations(items);
+        });
+        return () => unsub();
+    }, [user]);
+
+    // Fetch user behavior
+    const fetchBehavior = useCallback(async () => {
+        if (!user) return;
+        const token = await getIdToken();
+        if (!token) return;
+        try {
+            // We read user_behavior from Firestore directly (client-side read is fine for own doc)
+            const { doc, getDoc } = await import("firebase/firestore");
+            const behavDoc = await getDoc(doc(db, "user_behavior", user.uid));
+            if (behavDoc.exists()) {
+                setUserBehavior({ userId: user.uid, ...behavDoc.data() } as UserBehavior);
+            } else {
+                setUserBehavior({
+                    userId: user.uid,
+                    noShowCount: 0,
+                    totalReservations: 0,
+                    reliabilityScore: 100,
+                    lastNoShowAt: null,
+                    restrictionLevel: "none",
+                    updatedAt: "",
+                });
+            }
+        } catch (err) {
+            console.error("[Behavior] Error:", err);
+        }
+    }, [user, getIdToken]);
+
+    useEffect(() => { fetchBehavior(); }, [fetchBehavior]);
 
     const toggleDay = (day: string) => {
         setDaily(false);
@@ -114,7 +212,6 @@ export default function DailyNeedsPage() {
     };
 
     const handleToggle = async (d: DemandLocal) => {
-        // Optimistic UI
         setDemands((prev) => prev.map((item) =>
             item.id === d.id ? { ...item, isActive: !item.isActive } : item
         ));
@@ -130,7 +227,6 @@ export default function DailyNeedsPage() {
             if (json.success) {
                 toast.success(d.isActive ? "Demand paused ⏸️" : "Demand activated ✅");
             } else {
-                // Revert on failure
                 setDemands((prev) => prev.map((item) =>
                     item.id === d.id ? { ...item, isActive: d.isActive } : item
                 ));
@@ -176,6 +272,62 @@ export default function DailyNeedsPage() {
         setEditSaving(false);
     };
 
+    // ─── Reservation Actions ─────────────────────
+    const handleReserve = async (d: DemandLocal) => {
+        setReservingItem(d.itemId);
+        const token = await getIdToken();
+        if (!token) { setReservingItem(null); return; }
+        try {
+            const res = await fetch("/api/daily-demands/reserve", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ itemId: d.itemId, quantity: d.quantity }),
+            });
+            const json = await res.json();
+            if (json.success) toast.success("Reserved for today! 📋");
+            else toast.error(json.error || "Failed to reserve");
+        } catch { toast.error("Something went wrong"); }
+        setReservingItem(null);
+    };
+
+    const handleConfirm = async (reservationId: string) => {
+        setConfirmingId(reservationId);
+        const token = await getIdToken();
+        if (!token) { setConfirmingId(null); return; }
+        try {
+            const res = await fetch("/api/daily-demands/confirm", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ reservationId }),
+            });
+            const json = await res.json();
+            if (json.success) toast.success("Confirmed! See you at pickup 🎉");
+            else toast.error(json.error || "Failed to confirm");
+        } catch { toast.error("Something went wrong"); }
+        setConfirmingId(null);
+    };
+
+    const handleCollect = async (reservationId: string) => {
+        setCollectingId(reservationId);
+        const token = await getIdToken();
+        if (!token) { setCollectingId(null); return; }
+        try {
+            const res = await fetch("/api/daily-demands/collect", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ reservationId }),
+            });
+            const json = await res.json();
+            if (json.success) toast.success("Collected! Enjoy your meal 🍽️");
+            else toast.error(json.error || "Failed to collect");
+        } catch { toast.error("Something went wrong"); }
+        setCollectingId(null);
+    };
+
+    // Check if item already reserved today
+    const isItemReservedToday = (itemId: string) =>
+        reservations.some((r) => r.itemId === itemId && ["reserved", "confirmed"].includes(r.status));
+
     if (loading) return (
         <div className="min-h-screen bg-zayko-900 flex items-center justify-center">
             <div className="w-12 h-12 border-4 border-gold-400 border-t-transparent rounded-full animate-spin"></div>
@@ -191,12 +343,111 @@ export default function DailyNeedsPage() {
                     <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-xl shadow-lg shadow-blue-500/5">🍱</div>
                     <div>
                         <h1 className="text-lg font-display font-bold text-white uppercase tracking-tight">Daily Needs</h1>
-                        <p className="text-[10px] text-zayko-400 font-bold tracking-widest uppercase">Recurring Demand Forecast</p>
+                        <p className="text-[10px] text-zayko-400 font-bold tracking-widest uppercase">Smart Reservation System</p>
                     </div>
                 </div>
             </div>
 
             <div className="max-w-3xl mx-auto p-6 space-y-8">
+
+                {/* ─── No-Show Warning Banner ─── */}
+                {userBehavior && userBehavior.noShowCount >= 3 && (
+                    <div className={`rounded-2xl p-4 flex items-start gap-3 animate-fade-in border ${
+                        userBehavior.restrictionLevel === "disabled"
+                            ? "bg-red-500/10 border-red-500/30"
+                            : userBehavior.restrictionLevel === "limited"
+                                ? "bg-orange-500/10 border-orange-500/30"
+                                : "bg-yellow-500/10 border-yellow-500/30"
+                    }`}>
+                        <span className="text-xl">{
+                            userBehavior.restrictionLevel === "disabled" ? "🚫" :
+                                userBehavior.restrictionLevel === "limited" ? "⚠️" : "💡"
+                        }</span>
+                        <div>
+                            <p className={`text-sm font-semibold ${
+                                userBehavior.restrictionLevel === "disabled" ? "text-red-300" :
+                                    userBehavior.restrictionLevel === "limited" ? "text-orange-300" : "text-yellow-300"
+                            }`}>
+                                {userBehavior.restrictionLevel === "disabled"
+                                    ? "Daily Needs Disabled"
+                                    : userBehavior.restrictionLevel === "limited"
+                                        ? "Reservations Limited"
+                                        : "No-Show Warning"}
+                            </p>
+                            <p className="text-xs text-zayko-400 mt-0.5">
+                                {userBehavior.restrictionLevel === "disabled"
+                                    ? `You have ${userBehavior.noShowCount} no-shows. Contact canteen staff to restore access.`
+                                    : userBehavior.restrictionLevel === "limited"
+                                        ? `${userBehavior.noShowCount} no-shows detected. Max 2 units per reservation.`
+                                        : `${userBehavior.noShowCount} no-shows. Please collect your reserved items on time.`}
+                            </p>
+                            <div className="flex items-center gap-2 mt-2">
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-zayko-300">
+                                    Reliability: {userBehavior.reliabilityScore}%
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* ─── Today's Reservations ─── */}
+                {reservations.length > 0 && (
+                    <div className="animate-fade-in">
+                        <h2 className="text-base font-display font-bold text-white mb-4 flex items-center gap-2">
+                            <span className="w-8 h-8 bg-blue-500/20 rounded-lg flex items-center justify-center text-sm">📋</span>
+                            Today&apos;s Reservations
+                        </h2>
+                        <div className="space-y-3">
+                            {reservations.map((r) => {
+                                const cfg = STATUS_CONFIG[r.status] || STATUS_CONFIG.reserved;
+                                return (
+                                    <div key={r.id} className="bg-zayko-800/50 border border-zayko-700 rounded-2xl p-4 animate-slide-up">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <span className="font-bold text-white">{r.itemName}</span>
+                                                <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 font-semibold">×{r.quantity}</span>
+                                                <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${cfg.bg} ${cfg.color}`}>
+                                                    {cfg.label}
+                                                </span>
+                                            </div>
+                                            {["reserved", "confirmed"].includes(r.status) && (
+                                                <PickupCountdown endTime={r.status === "reserved" ? r.expiryTime : r.pickupWindowEnd} />
+                                            )}
+                                        </div>
+
+                                        {/* Pickup window info */}
+                                        <div className="flex items-center gap-4 text-xs text-zayko-500 mb-3">
+                                            <span>🕐 Pickup: {new Date(r.pickupWindowStart).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} – {new Date(r.pickupWindowEnd).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                                        </div>
+
+                                        {/* Action buttons */}
+                                        <div className="flex gap-2">
+                                            {r.status === "reserved" && (
+                                                <button
+                                                    onClick={() => handleConfirm(r.id)}
+                                                    disabled={confirmingId === r.id}
+                                                    className="flex-1 py-2.5 bg-blue-500/20 text-blue-400 rounded-xl text-sm font-bold hover:bg-blue-500/30 transition-all disabled:opacity-50"
+                                                >
+                                                    {confirmingId === r.id ? "Confirming…" : "✓ Confirm Pickup"}
+                                                </button>
+                                            )}
+                                            {r.status === "confirmed" && (
+                                                <button
+                                                    onClick={() => handleCollect(r.id)}
+                                                    disabled={collectingId === r.id}
+                                                    className="flex-1 py-2.5 bg-emerald-500/20 text-emerald-400 rounded-xl text-sm font-bold hover:bg-emerald-500/30 transition-all disabled:opacity-50"
+                                                >
+                                                    {collectingId === r.id ? "Processing…" : "🍽️ Mark Collected"}
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+
                 {/* ─── Create Form ─── */}
                 <div className="bg-zayko-800/50 border border-zayko-700 rounded-2xl p-6 animate-fade-in">
                     <h2 className="text-base font-display font-bold text-white mb-4 flex items-center gap-2">
@@ -326,6 +577,17 @@ export default function DailyNeedsPage() {
                                                 </div>
                                             </div>
                                             <div className="flex items-center gap-1.5 shrink-0">
+                                                {/* Reserve for Today */}
+                                                {d.isActive && !isItemReservedToday(d.itemId) && userBehavior?.restrictionLevel !== "disabled" && (
+                                                    <button
+                                                        onClick={() => handleReserve(d)}
+                                                        disabled={reservingItem === d.itemId}
+                                                        className="px-3 py-2 rounded-xl text-xs font-bold bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 transition-all disabled:opacity-50"
+                                                        title="Reserve for today"
+                                                    >
+                                                        {reservingItem === d.itemId ? "…" : "📋"}
+                                                    </button>
+                                                )}
                                                 {/* Toggle Switch */}
                                                 <button
                                                     onClick={() => handleToggle(d)}
@@ -349,8 +611,11 @@ export default function DailyNeedsPage() {
                 <div className="bg-blue-500/10 border border-blue-500/20 rounded-2xl p-4 flex items-start gap-3">
                     <span className="text-xl">ℹ️</span>
                     <div>
-                        <p className="text-blue-300 text-sm font-semibold">For demand forecasting only</p>
-                        <p className="text-blue-400/70 text-xs mt-0.5">No orders created. The canteen uses this to plan stock. Toggle OFF to pause without deleting.</p>
+                        <p className="text-blue-300 text-sm font-semibold">Smart Reservation System</p>
+                        <p className="text-blue-400/70 text-xs mt-0.5">
+                            Use the 📋 button to reserve items for today. Confirm before 6:30 AM and pick up between 7–10 AM.
+                            Repeated no-shows may limit your access.
+                        </p>
                     </div>
                 </div>
             </div>

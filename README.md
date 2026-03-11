@@ -55,3 +55,7 @@ Refer to the [DEPLOYMENT.md](file:///c:/Users/pande/Desktop/newzakko/DEPLOYMENT.
 ---
 
 Built with ❤️ for a better campus experience.
+
+# run once
+npm run build 
+npm start

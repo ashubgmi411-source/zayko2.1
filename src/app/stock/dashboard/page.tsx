@@ -43,6 +43,20 @@ interface DayDemandItem {
     requiredQuantity: number;
 }
 
+interface ReservationAnalyticsData {
+    todayStats: {
+        reserved: number;
+        confirmed: number;
+        collected: number;
+        expired: number;
+        noShow: number;
+        total: number;
+    };
+    noShowRate: number;
+    topNoShowItems: Array<{ itemName: string; noShowCount: number }>;
+    demandForecast: Record<string, number>;
+}
+
 export default function StockManagerDashboard() {
     const [data, setData] = useState<DashboardData | null>(null);
     const [loading, setLoading] = useState(true);
@@ -62,6 +76,10 @@ export default function StockManagerDashboard() {
     const [dayDemandItems, setDayDemandItems] = useState<DayDemandItem[]>([]);
     const [dayTotalQuantity, setDayTotalQuantity] = useState(0);
 
+    // ─── Reservation Analytics ────
+    const [resAnalytics, setResAnalytics] = useState<ReservationAnalyticsData | null>(null);
+    const [resLoading, setResLoading] = useState(false);
+
     const getHeaders = () => ({
         "Content-Type": "application/json",
         Authorization: `Bearer ${localStorage.getItem("stockManagerToken")}`,
@@ -69,6 +87,7 @@ export default function StockManagerDashboard() {
 
     useEffect(() => {
         fetchData();
+        fetchReservationAnalytics();
     }, []);
 
     const fetchData = async () => {
@@ -86,9 +105,22 @@ export default function StockManagerDashboard() {
         setLoading(false);
     };
 
+    const fetchReservationAnalytics = async () => {
+        setResLoading(true);
+        try {
+            const res = await fetch("/api/daily-demands/analytics", { headers: getHeaders() });
+            const json = await res.json();
+            if (json.success) {
+                setResAnalytics(json.analytics);
+            }
+        } catch {
+            // Analytics may not be available yet — silently fail
+        }
+        setResLoading(false);
+    };
+
     // ─── Real-time Firestore Listeners ──────────────
     useEffect(() => {
-        // 1. Listen to active dailyDemands (uses short day names like "Mon")
         const unsubDaily = onSnapshot(
             query(collection(db, "dailyDemands"), where("isActive", "==", true)),
             (snap) => {
@@ -101,7 +133,6 @@ export default function StockManagerDashboard() {
             }
         );
 
-        // 2. Listen to active userDemandPlans (uses full day names like "Monday")
         const unsubPlans = onSnapshot(
             query(collection(db, "userDemandPlans"), where("isActive", "==", true)),
             (snap) => {
@@ -133,15 +164,12 @@ export default function StockManagerDashboard() {
 
             if (userId) allUsers.add(userId);
 
-            // 1. Global Live Demand Aggregation
             if (!itemMap[key]) {
                 itemMap[key] = { itemId: key, itemName, totalDemand: 0, users: new Set() };
             }
             itemMap[key].totalDemand += qty;
             if (userId) itemMap[key].users.add(userId);
 
-            // 2. Selected Day Purchase Aggregation
-            // Match the day format: dailyDemands uses "Mon", userDemandPlans uses "Monday"
             const targetDay = isDailyDemand ? DAY_SHORT[selectedPurchaseDay] : selectedPurchaseDay;
 
             if (days.includes(targetDay)) {
@@ -149,11 +177,9 @@ export default function StockManagerDashboard() {
             }
         };
 
-        // Merge both datasets
         rawDailyDemands.forEach((d) => processDoc(d, true));
         rawDemandPlans.forEach((d) => processDoc(d, false));
 
-        // Update Live Demand State
         const liveItems = Object.values(itemMap)
             .map((item) => ({
                 itemId: item.itemId,
@@ -167,7 +193,6 @@ export default function StockManagerDashboard() {
         setLiveTotalStudents(allUsers.size);
         setLiveTotalNeeds(rawDailyDemands.length + rawDemandPlans.length);
 
-        // Update Day-wise Purchase State
         const purchaseItems = Object.entries(dayDemandMap)
             .filter(([, qty]) => qty > 0)
             .map(([itemName, requiredQuantity]) => ({ itemName, requiredQuantity }))
@@ -201,7 +226,7 @@ export default function StockManagerDashboard() {
                             📄 Download Report
                         </button>
                         <button
-                            onClick={() => { setLoading(true); fetchData(); }}
+                            onClick={() => { setLoading(true); fetchData(); fetchReservationAnalytics(); }}
                             className="px-4 py-2 bg-emerald-500/20 text-emerald-400 rounded-xl text-sm font-semibold hover:bg-emerald-500/30 transition-all"
                         >
                             🔄 Refresh
@@ -294,6 +319,85 @@ export default function StockManagerDashboard() {
                                 </div>
                             )}
                         </div>
+
+                        {/* ─── 📋 Reservation Analytics ─── */}
+                        {resAnalytics && (
+                            <div className="bg-gradient-to-br from-purple-500/10 to-indigo-500/5 border border-purple-500/20 rounded-2xl p-6 mb-8 animate-slide-up">
+                                <div className="flex items-center gap-3 mb-5">
+                                    <div className="w-10 h-10 rounded-xl bg-purple-500/20 flex items-center justify-center text-xl">📋</div>
+                                    <div>
+                                        <h2 className="text-base font-display font-bold text-white">Reservation Analytics</h2>
+                                        <p className="text-[10px] text-purple-400 uppercase tracking-wider font-bold">Today&apos;s reservation tracking</p>
+                                    </div>
+                                </div>
+
+                                {/* Stats grid */}
+                                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
+                                    {[
+                                        { label: "Reserved", value: resAnalytics.todayStats.reserved, color: "text-yellow-400" },
+                                        { label: "Confirmed", value: resAnalytics.todayStats.confirmed, color: "text-blue-400" },
+                                        { label: "Collected", value: resAnalytics.todayStats.collected, color: "text-emerald-400" },
+                                        { label: "Expired", value: resAnalytics.todayStats.expired, color: "text-zinc-400" },
+                                        { label: "No-Show", value: resAnalytics.todayStats.noShow, color: "text-red-400" },
+                                    ].map((s) => (
+                                        <div key={s.label} className="bg-white/5 rounded-xl p-3 text-center">
+                                            <p className={`text-2xl font-display font-bold ${s.color}`}>{s.value}</p>
+                                            <p className="text-[10px] text-zayko-400 uppercase tracking-wider font-bold mt-1">{s.label}</p>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* No-show rate */}
+                                <div className="flex items-center gap-4 mb-5">
+                                    <div className="flex-1 bg-white/5 rounded-xl p-4">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className="text-xs text-zayko-400 font-semibold">No-Show Rate (7 days)</span>
+                                            <span className={`text-lg font-display font-bold ${resAnalytics.noShowRate > 20 ? "text-red-400" : resAnalytics.noShowRate > 10 ? "text-yellow-400" : "text-emerald-400"}`}>
+                                                {resAnalytics.noShowRate}%
+                                            </span>
+                                        </div>
+                                        <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+                                            <div
+                                                className={`h-full rounded-full transition-all duration-500 ${resAnalytics.noShowRate > 20 ? "bg-red-500" : resAnalytics.noShowRate > 10 ? "bg-yellow-500" : "bg-emerald-500"}`}
+                                                style={{ width: `${Math.min(resAnalytics.noShowRate, 100)}%` }}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Top no-show items */}
+                                {resAnalytics.topNoShowItems.length > 0 && (
+                                    <div className="mb-5">
+                                        <h3 className="text-xs text-zayko-400 font-semibold uppercase tracking-wider mb-2">Top No-Show Items</h3>
+                                        <div className="space-y-1.5">
+                                            {resAnalytics.topNoShowItems.map((item) => (
+                                                <div key={item.itemName} className="flex items-center justify-between py-2 px-3 bg-white/5 rounded-xl">
+                                                    <span className="text-sm text-white">{item.itemName}</span>
+                                                    <span className="text-sm font-bold text-red-400">{item.noShowCount} no-shows</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Demand Forecast */}
+                                {Object.keys(resAnalytics.demandForecast).length > 0 && (
+                                    <div>
+                                        <h3 className="text-xs text-zayko-400 font-semibold uppercase tracking-wider mb-2">📈 Tomorrow&apos;s Demand Forecast</h3>
+                                        <div className="space-y-1.5">
+                                            {Object.entries(resAnalytics.demandForecast)
+                                                .sort(([, a], [, b]) => b - a)
+                                                .map(([name, qty]) => (
+                                                    <div key={name} className="flex items-center justify-between py-2 px-3 bg-white/5 rounded-xl">
+                                                        <span className="text-sm text-white">{name}</span>
+                                                        <span className="text-sm font-bold text-purple-400">~{qty} units</span>
+                                                    </div>
+                                                ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
                         {/* ─── Today & Tomorrow Forecast ─── */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8 animate-slide-up">

@@ -9,6 +9,7 @@ import JarvisChat from "@/components/JarvisChat";
 import JarvisAssistant from "@/components/JarvisAssistant";
 import PageTransition from "@/components/PageTransition";
 import IntroProvider from "@/components/IntroProvider";
+import UserThemeWrapper from "@/components/UserThemeWrapper";
 import { Toaster } from "react-hot-toast";
 import Script from "next/script";
 
@@ -34,26 +35,28 @@ export default function RootLayout({
       <body className="min-h-screen flex flex-col">
         <AuthProvider>
           <CartProvider>
-            <IntroProvider>
-              <Navbar />
-              <main className="flex-1"><PageTransition>{children}</PageTransition></main>
-              <Footer />
-              <MobileBottomNav />
-              <JarvisChat />
-              <JarvisAssistant />
-            </IntroProvider>
-            <Toaster
-              position="top-right"
-              toastOptions={{
-                duration: 3000,
-                style: {
-                  borderRadius: "12px",
-                  background: "#1e3a5f",
-                  color: "#fff",
-                  fontSize: "14px",
-                },
-              }}
-            />
+            <UserThemeWrapper>
+              <IntroProvider>
+                <Navbar />
+                <main className="flex-1"><PageTransition>{children}</PageTransition></main>
+                <Footer />
+                <MobileBottomNav />
+                <JarvisChat />
+                <JarvisAssistant />
+              </IntroProvider>
+              <Toaster
+                position="top-right"
+                toastOptions={{
+                  duration: 3000,
+                  style: {
+                    borderRadius: "12px",
+                    background: "#1e3a5f",
+                    color: "#fff",
+                    fontSize: "14px",
+                  },
+                }}
+              />
+            </UserThemeWrapper>
           </CartProvider>
         </AuthProvider>
       </body>
