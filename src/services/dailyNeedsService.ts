@@ -23,13 +23,15 @@ const RESERVATIONS_COL = "daily_needs_reservations";
 const USER_BEHAVIOR_COL = "user_behavior";
 const MENU_ITEMS_COL = "menuItems";
 
-// ─── Pickup Window Config ────────────────────────
-// Pickup window: 7:00 AM – 10:00 AM on reservation day
-const PICKUP_START_HOUR = 7;
-const PICKUP_END_HOUR = 10;
-// Confirmation cutoff: 6:30 AM on reservation day
-const CONFIRM_CUTOFF_HOUR = 6;
-const CONFIRM_CUTOFF_MIN = 30;
+// ─── Timing Config ──────────────────────────────
+// Users reserve during the day.
+// Confirmation window: 10:00 PM → 12:00 AM (same night).
+// Pickup window: 8:00 AM → 2:00 PM (next day).
+// Canteen closing = 2:00 PM — after that, no-show.
+const CONFIRM_WINDOW_START_HOUR = 22;  // 10 PM
+const CONFIRM_CUTOFF_HOUR = 0;         // 12 AM (midnight)
+const PICKUP_START_HOUR = 8;           // 8 AM next day
+const PICKUP_END_HOUR = 14;            // 2 PM (canteen close)
 
 // ─── Helpers ────────────────────────────────────
 
@@ -43,22 +45,29 @@ function getTomorrowDate(): string {
     return d.toISOString().split("T")[0];
 }
 
-function buildPickupWindow(dateStr: string) {
-    const base = new Date(dateStr + "T00:00:00+05:30");
+function buildPickupWindow(reservationDateStr: string) {
+    // Reservation date = today. Confirmation tonight, pickup tomorrow.
+    const base = new Date(reservationDateStr + "T00:00:00+05:30");
 
-    const start = new Date(base);
+    // Confirmation expiry = midnight tonight (end of reservation day)
+    const expiry = new Date(base);
+    expiry.setDate(expiry.getDate() + 1); // midnight = start of next day
+    expiry.setHours(CONFIRM_CUTOFF_HOUR, 0, 0, 0);
+
+    // Pickup window = next day 8 AM – 2 PM
+    const nextDay = new Date(base);
+    nextDay.setDate(nextDay.getDate() + 1);
+
+    const start = new Date(nextDay);
     start.setHours(PICKUP_START_HOUR, 0, 0, 0);
 
-    const end = new Date(base);
+    const end = new Date(nextDay);
     end.setHours(PICKUP_END_HOUR, 0, 0, 0);
-
-    const cutoff = new Date(base);
-    cutoff.setHours(CONFIRM_CUTOFF_HOUR, CONFIRM_CUTOFF_MIN, 0, 0);
 
     return {
         pickupWindowStart: start.toISOString(),
         pickupWindowEnd: end.toISOString(),
-        expiryTime: cutoff.toISOString(),
+        expiryTime: expiry.toISOString(),
     };
 }
 
@@ -171,6 +180,9 @@ export async function confirmReservation(
             });
         });
 
+        // Track confirmed order in user behavior
+        await incrementConfirmedOrders(userId);
+
         console.log(`[Reservations] Confirmed ${reservationId}`);
         return { success: true };
     } catch (err: any) {
@@ -208,6 +220,9 @@ export async function markCollected(
                 updatedAt: now,
             });
         });
+
+        // Track pickup in user behavior
+        await incrementPickedUpOrders(userId);
 
         console.log(`[Reservations] Collected ${reservationId}`);
         return { success: true };
@@ -298,6 +313,8 @@ export async function getUserBehavior(userId: string): Promise<UserBehavior> {
             userId,
             noShowCount: 0,
             totalReservations: 0,
+            confirmedOrders: 0,
+            pickedUpOrders: 0,
             reliabilityScore: 100,
             lastNoShowAt: null,
             restrictionLevel: "none",
@@ -305,29 +322,97 @@ export async function getUserBehavior(userId: string): Promise<UserBehavior> {
         };
     }
 
-    return { userId, ...doc.data() } as UserBehavior;
+    const data = doc.data()!;
+    return {
+        userId,
+        noShowCount: data.noShowCount ?? 0,
+        totalReservations: data.totalReservations ?? 0,
+        confirmedOrders: data.confirmedOrders ?? 0,
+        pickedUpOrders: data.pickedUpOrders ?? 0,
+        reliabilityScore: data.reliabilityScore ?? 100,
+        lastNoShowAt: data.lastNoShowAt ?? null,
+        restrictionLevel: data.restrictionLevel ?? "none",
+        updatedAt: data.updatedAt ?? new Date().toISOString(),
+    };
 }
 
 async function incrementTotalReservations(userId: string): Promise<void> {
     const ref = adminDb.collection(USER_BEHAVIOR_COL).doc(userId);
     const doc = await ref.get();
+    const now = new Date().toISOString();
 
     if (!doc.exists) {
         await ref.set({
             noShowCount: 0,
             totalReservations: 1,
+            confirmedOrders: 0,
+            pickedUpOrders: 0,
             reliabilityScore: 100,
             lastNoShowAt: null,
             restrictionLevel: "none",
-            updatedAt: new Date().toISOString(),
+            updatedAt: now,
         });
     } else {
         const data = doc.data()!;
-        const totalReservations = (data.totalReservations || 0) + 1;
         await ref.update({
-            totalReservations,
-            reliabilityScore: calculateReliabilityScore(totalReservations, data.noShowCount || 0),
-            updatedAt: new Date().toISOString(),
+            totalReservations: (data.totalReservations || 0) + 1,
+            updatedAt: now,
+        });
+    }
+}
+
+async function incrementConfirmedOrders(userId: string): Promise<void> {
+    const ref = adminDb.collection(USER_BEHAVIOR_COL).doc(userId);
+    const doc = await ref.get();
+    const now = new Date().toISOString();
+
+    if (!doc.exists) {
+        await ref.set({
+            noShowCount: 0,
+            totalReservations: 0,
+            confirmedOrders: 1,
+            pickedUpOrders: 0,
+            reliabilityScore: 100,
+            lastNoShowAt: null,
+            restrictionLevel: "none",
+            updatedAt: now,
+        });
+    } else {
+        const data = doc.data()!;
+        const confirmedOrders = (data.confirmedOrders || 0) + 1;
+        const pickedUpOrders = data.pickedUpOrders || 0;
+        await ref.update({
+            confirmedOrders,
+            reliabilityScore: calculateReliabilityScore(confirmedOrders, pickedUpOrders),
+            updatedAt: now,
+        });
+    }
+}
+
+async function incrementPickedUpOrders(userId: string): Promise<void> {
+    const ref = adminDb.collection(USER_BEHAVIOR_COL).doc(userId);
+    const doc = await ref.get();
+    const now = new Date().toISOString();
+
+    if (!doc.exists) {
+        await ref.set({
+            noShowCount: 0,
+            totalReservations: 0,
+            confirmedOrders: 0,
+            pickedUpOrders: 1,
+            reliabilityScore: 100,
+            lastNoShowAt: null,
+            restrictionLevel: "none",
+            updatedAt: now,
+        });
+    } else {
+        const data = doc.data()!;
+        const pickedUpOrders = (data.pickedUpOrders || 0) + 1;
+        const confirmedOrders = data.confirmedOrders || 0;
+        await ref.update({
+            pickedUpOrders,
+            reliabilityScore: calculateReliabilityScore(confirmedOrders, pickedUpOrders),
+            updatedAt: now,
         });
     }
 }
@@ -343,6 +428,8 @@ async function updateNoShowCount(userId: string): Promise<void> {
             tx.set(ref, {
                 noShowCount: 1,
                 totalReservations: 0,
+                confirmedOrders: 0,
+                pickedUpOrders: 0,
                 reliabilityScore: 0,
                 lastNoShowAt: now,
                 restrictionLevel: getRestrictionLevel(1),
@@ -353,11 +440,12 @@ async function updateNoShowCount(userId: string): Promise<void> {
 
         const data = doc.data()!;
         const newNoShowCount = (data.noShowCount || 0) + 1;
-        const totalReservations = data.totalReservations || 0;
+        const confirmedOrders = data.confirmedOrders || 0;
+        const pickedUpOrders = data.pickedUpOrders || 0;
 
         tx.update(ref, {
             noShowCount: newNoShowCount,
-            reliabilityScore: calculateReliabilityScore(totalReservations, newNoShowCount),
+            reliabilityScore: calculateReliabilityScore(confirmedOrders, pickedUpOrders),
             lastNoShowAt: now,
             restrictionLevel: getRestrictionLevel(newNoShowCount),
             updatedAt: now,
@@ -487,4 +575,48 @@ export async function getDemandForecast(): Promise<Record<string, number>> {
     }
 
     return forecast;
+}
+
+// ─── CONFIRMED DEMAND (Stock Manager) ───────────
+
+export interface ConfirmedDemandItem {
+    itemName: string;
+    itemId: string;
+    totalQuantity: number;
+    reservationCount: number;
+}
+
+export async function getConfirmedDemandForStockManager(
+    date?: string
+): Promise<ConfirmedDemandItem[]> {
+    const targetDate = date || getTodayDate();
+
+    const snap = await adminDb
+        .collection(RESERVATIONS_COL)
+        .where("reservationDate", "==", targetDate)
+        .where("status", "==", "confirmed")
+        .get();
+
+    // Aggregate by item
+    const itemMap: Record<string, ConfirmedDemandItem> = {};
+
+    snap.forEach((doc) => {
+        const data = doc.data();
+        const key = data.itemId;
+
+        if (!itemMap[key]) {
+            itemMap[key] = {
+                itemName: data.itemName,
+                itemId: data.itemId,
+                totalQuantity: 0,
+                reservationCount: 0,
+            };
+        }
+        itemMap[key].totalQuantity += data.quantity;
+        itemMap[key].reservationCount += 1;
+    });
+
+    return Object.values(itemMap).sort(
+        (a, b) => b.totalQuantity - a.totalQuantity
+    );
 }

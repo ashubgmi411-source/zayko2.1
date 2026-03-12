@@ -57,6 +57,13 @@ interface ReservationAnalyticsData {
     demandForecast: Record<string, number>;
 }
 
+interface ConfirmedDemandItem {
+    itemName: string;
+    itemId: string;
+    totalQuantity: number;
+    reservationCount: number;
+}
+
 export default function StockManagerDashboard() {
     const [data, setData] = useState<DashboardData | null>(null);
     const [loading, setLoading] = useState(true);
@@ -80,6 +87,11 @@ export default function StockManagerDashboard() {
     const [resAnalytics, setResAnalytics] = useState<ReservationAnalyticsData | null>(null);
     const [resLoading, setResLoading] = useState(false);
 
+    // ─── Confirmed Demand (Stock Manager View) ────
+    const [confirmedItems, setConfirmedItems] = useState<ConfirmedDemandItem[]>([]);
+    const [confirmedTotal, setConfirmedTotal] = useState(0);
+    const [confirmedLoading, setConfirmedLoading] = useState(false);
+
     const getHeaders = () => ({
         "Content-Type": "application/json",
         Authorization: `Bearer ${localStorage.getItem("stockManagerToken")}`,
@@ -88,6 +100,7 @@ export default function StockManagerDashboard() {
     useEffect(() => {
         fetchData();
         fetchReservationAnalytics();
+        fetchConfirmedDemand();
     }, []);
 
     const fetchData = async () => {
@@ -117,6 +130,21 @@ export default function StockManagerDashboard() {
             // Analytics may not be available yet — silently fail
         }
         setResLoading(false);
+    };
+
+    const fetchConfirmedDemand = async () => {
+        setConfirmedLoading(true);
+        try {
+            const res = await fetch("/api/daily-demands/confirmed", { headers: getHeaders() });
+            const json = await res.json();
+            if (json.success) {
+                setConfirmedItems(json.items);
+                setConfirmedTotal(json.totalQuantity);
+            }
+        } catch {
+            // Silently fail — data may not exist yet
+        }
+        setConfirmedLoading(false);
     };
 
     // ─── Real-time Firestore Listeners ──────────────
@@ -226,7 +254,7 @@ export default function StockManagerDashboard() {
                             📄 Download Report
                         </button>
                         <button
-                            onClick={() => { setLoading(true); fetchData(); fetchReservationAnalytics(); }}
+                            onClick={() => { setLoading(true); fetchData(); fetchReservationAnalytics(); fetchConfirmedDemand(); }}
                             className="px-4 py-2 bg-emerald-500/20 text-emerald-400 rounded-xl text-sm font-semibold hover:bg-emerald-500/30 transition-all"
                         >
                             🔄 Refresh
@@ -398,6 +426,90 @@ export default function StockManagerDashboard() {
                                 )}
                             </div>
                         )}
+
+                        {/* ─── ✅ Confirmed Demand (Only what to buy) ─── */}
+                        <div className="bg-gradient-to-br from-emerald-500/10 to-green-500/5 border border-emerald-500/20 rounded-2xl p-6 mb-8 animate-slide-up">
+                            <div className="flex items-center justify-between mb-5">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center text-xl">✅</div>
+                                    <div>
+                                        <h2 className="text-base font-display font-bold text-white">Confirmed Demand</h2>
+                                        <p className="text-[10px] text-emerald-400 uppercase tracking-wider font-bold">Only confirmed orders • Buy this</p>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={fetchConfirmedDemand}
+                                    disabled={confirmedLoading}
+                                    className="px-3 py-1.5 bg-emerald-500/10 text-emerald-400 rounded-lg text-xs font-bold hover:bg-emerald-500/20 transition-all disabled:opacity-50"
+                                >
+                                    {confirmedLoading ? "Loading…" : "🔄 Refresh"}
+                                </button>
+                            </div>
+
+                            {/* Summary stats */}
+                            <div className="grid grid-cols-2 gap-3 mb-5">
+                                <div className="bg-white/5 rounded-xl p-4 text-center">
+                                    <p className="text-3xl font-display font-bold text-emerald-400">{confirmedItems.length}</p>
+                                    <p className="text-[10px] text-zayko-400 uppercase tracking-wider font-bold mt-1">Unique Items</p>
+                                </div>
+                                <div className="bg-white/5 rounded-xl p-4 text-center">
+                                    <p className="text-3xl font-display font-bold text-emerald-400">{confirmedTotal}</p>
+                                    <p className="text-[10px] text-zayko-400 uppercase tracking-wider font-bold mt-1">Total Quantity</p>
+                                </div>
+                            </div>
+
+                            {/* Confirmed items list */}
+                            {confirmedItems.length === 0 ? (
+                                <div className="text-center py-6 text-zayko-500 text-sm">
+                                    No confirmed reservations yet for today
+                                </div>
+                            ) : (
+                                <div className="bg-zayko-800/50 border border-zayko-700 rounded-2xl overflow-hidden">
+                                    <table className="w-full text-sm text-left">
+                                        <thead>
+                                            <tr className="border-b border-zayko-700 bg-zayko-800/50">
+                                                <th className="px-6 py-3 text-zayko-400 font-semibold text-xs uppercase tracking-wider">#</th>
+                                                <th className="px-6 py-3 text-zayko-400 font-semibold text-xs uppercase tracking-wider">Item</th>
+                                                <th className="px-6 py-3 text-zayko-400 font-semibold text-xs uppercase tracking-wider text-center">Reservations</th>
+                                                <th className="px-6 py-3 text-zayko-400 font-semibold text-xs uppercase tracking-wider text-right">Quantity to Buy</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {confirmedItems.map((item, idx) => (
+                                                <tr key={item.itemId} className="border-b border-zayko-700/50 hover:bg-white/5 transition-colors">
+                                                    <td className="px-6 py-3 text-zayko-600 font-medium">{idx + 1}</td>
+                                                    <td className="px-6 py-3 text-white font-semibold">{item.itemName}</td>
+                                                    <td className="px-6 py-3 text-center">
+                                                        <span className="text-xs px-2 py-1 rounded-full bg-blue-500/20 text-blue-400 font-bold">
+                                                            {item.reservationCount} order{item.reservationCount !== 1 ? "s" : ""}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-3 text-right">
+                                                        <span className="text-lg font-display font-bold text-emerald-400">{item.totalQuantity}</span>
+                                                        <span className="text-xs text-zayko-500 ml-1.5">units</span>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                        <tfoot>
+                                            <tr className="bg-zayko-800/80">
+                                                <td className="px-6 py-3" colSpan={3}>
+                                                    <span className="text-sm font-bold text-white">Total to Purchase</span>
+                                                </td>
+                                                <td className="px-6 py-3 text-right">
+                                                    <span className="text-lg font-display font-bold text-white">{confirmedTotal}</span>
+                                                    <span className="text-xs text-zayko-500 ml-1.5">units</span>
+                                                </td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            )}
+
+                            <p className="text-[10px] text-zayko-600 mt-3 text-center">
+                                ⚠️ Only confirmed demand is shown. Reserved/expired items are excluded to prevent over-ordering.
+                            </p>
+                        </div>
 
                         {/* ─── Today & Tomorrow Forecast ─── */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8 animate-slide-up">

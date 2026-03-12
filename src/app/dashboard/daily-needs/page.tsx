@@ -167,6 +167,8 @@ export default function DailyNeedsPage() {
                     userId: user.uid,
                     noShowCount: 0,
                     totalReservations: 0,
+                    confirmedOrders: 0,
+                    pickedUpOrders: 0,
                     reliabilityScore: 100,
                     lastNoShowAt: null,
                     restrictionLevel: "none",
@@ -613,7 +615,7 @@ export default function DailyNeedsPage() {
                     <div>
                         <p className="text-blue-300 text-sm font-semibold">Smart Reservation System</p>
                         <p className="text-blue-400/70 text-xs mt-0.5">
-                            Use the 📋 button to reserve items for today. Confirm before 6:30 AM and pick up between 7–10 AM.
+                            Use the 📋 button to reserve items for today. Confirm between 10 PM – 12 AM tonight, then pick up tomorrow 8 AM – 2 PM.
                             Repeated no-shows may limit your access.
                         </p>
                     </div>

@@ -8,9 +8,15 @@
 //   2. ?secret= query parameter (Railway Cron compatibility)
 //
 // Tasks:
-//   1. Expire unconfirmed reservations past cutoff
-//   2. Mark no-show for confirmed reservations past pickup window
+//   1. Expire unconfirmed reservations past midnight (12:00 AM cutoff)
+//   2. Mark no-show for confirmed reservations past canteen close (2:00 PM)
 //   3. Update user behavior records (reliability score, restrictions)
+//
+// Timing:
+//   - Users reserve during the day
+//   - Confirmation window: 10:00 PM → 12:00 AM (same night)
+//   - Pickup window: 8:00 AM → 2:00 PM (next day)
+//   - Cron runs every 10 minutes to process expired/no-show reservations
 //
 // Railway Cron Config:
 //   Schedule: every 10 minutes

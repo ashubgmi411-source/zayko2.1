@@ -47,7 +47,9 @@ export interface UserBehavior {
     userId: string;
     noShowCount: number;
     totalReservations: number;
-    reliabilityScore: number;       // 0–100
+    confirmedOrders: number;
+    pickedUpOrders: number;
+    reliabilityScore: number;       // 0–100  (pickedUpOrders / confirmedOrders * 100)
     lastNoShowAt: string | null;
     restrictionLevel: RestrictionLevel;
     updatedAt: string;
@@ -97,12 +99,10 @@ export function getRestrictionLevel(noShowCount: number): RestrictionLevel {
 }
 
 export function calculateReliabilityScore(
-    totalReservations: number,
-    noShowCount: number
+    confirmedOrders: number,
+    pickedUpOrders: number
 ): number {
-    if (totalReservations === 0) return 100;
-    const score = Math.round(
-        ((totalReservations - noShowCount) / totalReservations) * 100
-    );
+    if (confirmedOrders === 0) return 100;
+    const score = Math.round((pickedUpOrders / confirmedOrders) * 100);
     return Math.max(0, Math.min(100, score));
 }
