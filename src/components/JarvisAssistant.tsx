@@ -286,7 +286,7 @@ export default function JarvisAssistant() {
     }
 
     return (
-        <div className="fixed bottom-24 left-4 sm:left-6 z-[100] flex items-end gap-3 pointer-events-none">
+        <div className="hidden md:flex fixed bottom-24 left-4 sm:left-6 z-[100] items-end gap-3 pointer-events-none">
 
             {/* ═══ Floating Voice UI Card ═══ */}
             <AnimatePresence>

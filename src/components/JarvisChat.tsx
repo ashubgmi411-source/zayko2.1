@@ -5,6 +5,7 @@ import { useCart } from "@/context/CartContext";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import toast from "react-hot-toast";
+import { useVoiceAssistant } from "@/hooks/useVoiceAssistant";
 
 interface ChatMessage {
     role: "assistant" | "user" | "system";
@@ -46,6 +47,29 @@ export default function JarvisChat() {
     const [processing, setProcessing] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
+
+    // Voice input (mobile mic inside chat)
+    const {
+        isListening,
+        transcript: voiceTranscript,
+        startListening,
+        stopListening,
+    } = useVoiceAssistant();
+
+    // When voice transcript updates, fill the input
+    useEffect(() => {
+        if (voiceTranscript && !isListening) {
+            setInput(voiceTranscript);
+        }
+    }, [voiceTranscript, isListening]);
+
+    const toggleVoice = () => {
+        if (isListening) {
+            stopListening();
+        } else {
+            startListening();
+        }
+    };
 
     // Initial Greeting
     useEffect(() => {
@@ -331,28 +355,42 @@ export default function JarvisChat() {
 
                         {/* Input Area */}
                         <div className="p-4 bg-zayko-800/50 border-t border-white/[0.06]">
-                            <div className="relative group">
-                                <input
-                                    ref={inputRef}
-                                    type="text"
-                                    value={input}
-                                    onChange={(e) => setInput(e.target.value)}
-                                    onKeyDown={handleKeyDown}
-                                    placeholder="2 samosa aur 1 chai..."
-                                    className="w-full bg-white/5 border border-white/[0.1] rounded-2xl py-4 pl-5 pr-14 text-white text-sm focus:outline-none focus:ring-2 focus:ring-gold-400/30 focus:border-gold-400/20 focus:shadow-[0_0_20px_rgba(251,191,36,0.1)] transition-all placeholder:text-zayko-600 font-medium"
-                                    disabled={processing}
-                                />
+                            <div className="relative group flex items-center gap-2">
+                                {/* Mic Button */}
                                 <button
-                                    onClick={() => handleSend()}
-                                    disabled={processing || !input.trim()}
-                                    className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-xl bg-gradient-to-br from-gold-400 to-gold-500 text-zayko-900 flex items-center justify-center transition-all active:scale-85 disabled:opacity-30 disabled:grayscale shadow-lg shadow-gold-500/20"
+                                    onClick={toggleVoice}
+                                    className={`flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center transition-all active:scale-90 ${
+                                        isListening
+                                            ? "bg-red-500 text-white shadow-lg shadow-red-500/30 animate-pulse"
+                                            : "bg-white/5 border border-white/[0.1] text-zayko-400 hover:text-white hover:bg-white/10"
+                                    }`}
+                                    title={isListening ? "Stop listening" : "Speak your order"}
                                 >
-                                    <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current" xmlns="http://www.w3.org/2000/svg">
-                                        <path d="M2.01 21L23 12L2.01 3L2 10L17 12L2 14L2.01 21Z" />
-                                    </svg>
+                                    🎙️
                                 </button>
+                                <div className="relative flex-1">
+                                    <input
+                                        ref={inputRef}
+                                        type="text"
+                                        value={input}
+                                        onChange={(e) => setInput(e.target.value)}
+                                        onKeyDown={handleKeyDown}
+                                        placeholder={isListening ? "Listening..." : "Type or tap 🎙️ to speak..."}
+                                        className="w-full bg-white/5 border border-white/[0.1] rounded-2xl py-4 pl-5 pr-14 text-white text-sm focus:outline-none focus:ring-2 focus:ring-gold-400/30 focus:border-gold-400/20 focus:shadow-[0_0_20px_rgba(251,191,36,0.1)] transition-all placeholder:text-zayko-600 font-medium"
+                                        disabled={processing || isListening}
+                                    />
+                                    <button
+                                        onClick={() => handleSend()}
+                                        disabled={processing || !input.trim()}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-xl bg-gradient-to-br from-gold-400 to-gold-500 text-zayko-900 flex items-center justify-center transition-all active:scale-85 disabled:opacity-30 disabled:grayscale shadow-lg shadow-gold-500/20"
+                                    >
+                                        <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current" xmlns="http://www.w3.org/2000/svg">
+                                            <path d="M2.01 21L23 12L2.01 3L2 10L17 12L2 14L2.01 21Z" />
+                                        </svg>
+                                    </button>
+                                </div>
                             </div>
-                            <p className="text-[9px] text-center text-zayko-600 mt-3 font-black uppercase tracking-[0.2em]">Powered by Zayko AI Engine</p>
+                            <p className="text-[9px] text-center text-zayko-600 mt-3 font-black uppercase tracking-[0.2em]">Type or Voice · Powered by Zayko AI</p>
                         </div>
                     </motion.div>
                 )}

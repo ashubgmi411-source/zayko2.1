@@ -21,7 +21,7 @@ export default function ThemeToggle() {
       transition={{ type: "spring", stiffness: 400, damping: 20, delay: 0.5 }}
       whileHover={{ scale: 1.12, rotate: 15 }}
       whileTap={{ scale: 0.9 }}
-      className="fixed bottom-44 md:bottom-6 right-4 z-[51] w-12 h-12 rounded-2xl flex items-center justify-center text-xl shadow-lg border cursor-pointer"
+      className="hidden md:block fixed bottom-44 md:bottom-6 right-4 z-[51] w-12 h-12 rounded-2xl items-center justify-center text-xl shadow-lg border cursor-pointer md:flex"
       style={{
         background: "var(--theme-glass-bg)",
         borderColor: "var(--theme-glass-border)",

@@ -510,3 +510,110 @@
 [data-theme] .animated-gradient-bg {
   background: var(--theme-gradient-page);
 }
+
+/* ══════════════════════════════════════════════════════════
+   LIGHT / MINIMAL MODE OVERRIDES
+   Fix hardcoded dark Tailwind classes so they adapt to
+   light-bg themes. Scoped to only light & minimal.
+   ══════════════════════════════════════════════════════════ */
+
+/* ── Background overrides ── */
+[data-theme="light"] .bg-zayko-900,
+[data-theme="light"] .bg-zayko-950,
+[data-theme="minimal"] .bg-zayko-900,
+[data-theme="minimal"] .bg-zayko-950 {
+  background-color: var(--theme-bg-primary) !important;
+}
+
+[data-theme="light"] .bg-zayko-800,
+[data-theme="minimal"] .bg-zayko-800 {
+  background-color: var(--theme-bg-secondary) !important;
+}
+
+/* ── Text overrides ── */
+[data-theme="light"] .text-white,
+[data-theme="minimal"] .text-white {
+  color: var(--theme-text-heading) !important;
+}
+
+[data-theme="light"] .text-zayko-100,
+[data-theme="light"] .text-zayko-200,
+[data-theme="minimal"] .text-zayko-100,
+[data-theme="minimal"] .text-zayko-200 {
+  color: var(--theme-text-primary) !important;
+}
+
+[data-theme="light"] .text-zayko-300,
+[data-theme="light"] .text-zayko-400,
+[data-theme="minimal"] .text-zayko-300,
+[data-theme="minimal"] .text-zayko-400 {
+  color: var(--theme-text-secondary) !important;
+}
+
+[data-theme="light"] .text-zayko-500,
+[data-theme="light"] .text-zayko-600,
+[data-theme="minimal"] .text-zayko-500,
+[data-theme="minimal"] .text-zayko-600 {
+  color: var(--theme-text-muted) !important;
+}
+
+/* ── Border overrides ── */
+[data-theme="light"] .border-zayko-700,
+[data-theme="light"] .border-zayko-800,
+[data-theme="minimal"] .border-zayko-700,
+[data-theme="minimal"] .border-zayko-800 {
+  border-color: var(--theme-border) !important;
+}
+
+/* ── Card backgrounds ── */
+[data-theme="light"] .bg-zayko-800\/50,
+[data-theme="minimal"] .bg-zayko-800\/50 {
+  background-color: var(--theme-bg-card) !important;
+}
+
+[data-theme="light"] .bg-zayko-900\/95,
+[data-theme="minimal"] .bg-zayko-900\/95 {
+  background-color: var(--theme-bg-elevated) !important;
+}
+
+/* ── Input fields ── */
+[data-theme="light"] .bg-white\/5,
+[data-theme="minimal"] .bg-white\/5 {
+  background-color: var(--theme-bg-input) !important;
+}
+
+[data-theme="light"] .border-white\/\[0\.08\],
+[data-theme="light"] .border-white\/\[0\.06\],
+[data-theme="light"] .border-white\/\[0\.1\],
+[data-theme="light"] .border-white\/10,
+[data-theme="minimal"] .border-white\/\[0\.08\],
+[data-theme="minimal"] .border-white\/\[0\.06\],
+[data-theme="minimal"] .border-white\/\[0\.1\],
+[data-theme="minimal"] .border-white\/10 {
+  border-color: var(--theme-border) !important;
+}
+
+/* ── Navbar & Bottom nav ── */
+[data-theme="light"] .premium-bottom-nav,
+[data-theme="minimal"] .premium-bottom-nav {
+  background: var(--theme-navbar-bg) !important;
+  border-color: var(--theme-border) !important;
+  box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.06) !important;
+}
+
+/* ── Gold accent text on light → blue accent ── */
+[data-theme="light"] .text-gold-400,
+[data-theme="light"] .text-gold-500 {
+  color: var(--theme-accent-primary) !important;
+}
+
+[data-theme="minimal"] .text-gold-400,
+[data-theme="minimal"] .text-gold-500 {
+  color: var(--theme-accent-primary) !important;
+}
+
+/* ── Placeholder text ── */
+[data-theme="light"] .placeholder\:text-zayko-600::placeholder,
+[data-theme="minimal"] .placeholder\:text-zayko-600::placeholder {
+  color: var(--theme-text-muted) !important;
+}
