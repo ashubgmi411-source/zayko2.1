@@ -28,19 +28,25 @@ export interface ExecutionSummary {
 export async function executeScheduledOrders(): Promise<ExecutionSummary> {
     const now = new Date();
 
+    // Query only by status to avoid needing a Firestore composite index
     const snapshot = await adminDb
         .collection("scheduled_orders")
         .where("status", "==", "scheduled")
-        .where("scheduledDateTime", "<=", now.toISOString())
         .get();
 
-    if (snapshot.empty) {
+    // Filter due orders in-memory
+    const dueDocs = snapshot.docs.filter((doc) => {
+        const scheduledDateTime = doc.data().scheduledDateTime;
+        return scheduledDateTime && new Date(scheduledDateTime).getTime() <= now.getTime();
+    });
+
+    if (dueDocs.length === 0) {
         return { success: true, processed: 0, results: [], message: "No scheduled orders due" };
     }
 
     const results: ExecutionResult[] = [];
 
-    for (const scheduledDoc of snapshot.docs) {
+    for (const scheduledDoc of dueDocs) {
         const scheduledData = scheduledDoc.data();
         const scheduledOrderId = scheduledDoc.id;
 
@@ -191,5 +197,5 @@ export async function executeScheduledOrders(): Promise<ExecutionSummary> {
         }
     }
 
-    return { success: true, processed: snapshot.size, results };
+    return { success: true, processed: dueDocs.length, results };
 }
