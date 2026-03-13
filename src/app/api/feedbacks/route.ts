@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/firebase";
-import { collection, addDoc, getDocs, query, orderBy, serverTimestamp, doc, getDoc } from "firebase/firestore";
+import { adminDb } from "@/lib/firebase-admin";
+
+export const runtime = "nodejs";
 
 // ─── POST /api/feedbacks (Submit Feedback) ────────────
 export async function POST(req: NextRequest) {
@@ -12,10 +13,9 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
         }
 
-        // Verify order exists (optional but good)
-        const orderRef = doc(db, "orders", orderId);
-        const orderSnap = await getDoc(orderRef);
-        if (!orderSnap.exists()) {
+        // Verify order exists
+        const orderSnap = await adminDb.collection("orders").doc(orderId).get();
+        if (!orderSnap.exists) {
             return NextResponse.json({ error: "Order not found" }, { status: 404 });
         }
 
@@ -26,10 +26,9 @@ export async function POST(req: NextRequest) {
             rating: Number(rating),
             comment: comment || "",
             createdAt: new Date().toISOString(),
-            serverTimestamp: serverTimestamp()
         };
 
-        const docRef = await addDoc(collection(db, "feedbacks"), feedbackData);
+        const docRef = await adminDb.collection("feedbacks").add(feedbackData);
 
         return NextResponse.json({
             success: true,
@@ -45,18 +44,16 @@ export async function POST(req: NextRequest) {
 // ─── GET /api/feedbacks (Admin View All) ─────────────
 export async function GET(req: NextRequest) {
     try {
-        // Simple auth check (in production use JWT/Admin token)
         const authHeader = req.headers.get("authorization");
         if (!authHeader) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        const q = query(
-            collection(db, "feedbacks"),
-            orderBy("serverTimestamp", "desc")
-        );
+        const snapshot = await adminDb
+            .collection("feedbacks")
+            .orderBy("createdAt", "desc")
+            .get();
 
-        const snapshot = await getDocs(q);
         const feedbacks = snapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data()
